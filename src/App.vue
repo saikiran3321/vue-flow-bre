@@ -132,6 +132,29 @@
         </template>
       </VueFlow>
     </div>
+    
+    <!-- Add controls bar for flow execution -->
+    <div class="controls-bar">
+      <button @click="runFlow" :disabled="isRunning" class="action-button">
+        <span class="icon">▶️</span>
+        <span>{{ isRunning ? 'Running...' : 'Run Flow' }}</span>
+      </button>
+      <div v-if="isRunning" class="execution-status">
+        Executing flow...
+      </div>
+      <div class="execution-log">
+        <h4>Execution Log</h4>
+        <div class="log-entries">
+          <div v-for="(log, index) in executionLog" :key="index" 
+               :class="['log-entry', `log-${log.type || 'info'}`]">
+            {{ log.message }}
+            <div v-if="log.data" class="log-data">
+              {{ JSON.stringify(log.data, null, 2) }}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -147,9 +170,11 @@ import PropertiesPanel from './components/PropertiesPanel.vue';
 
 const flowStore = useFlowStore();
 const themeStore = useThemeStore();
-const { addEdges } = useVueFlow();
+const { addEdges, getNode, getEdges } = useVueFlow();
 
 const elements = computed(() => flowStore.elements);
+const isRunning = ref(false);
+const executionLog = ref([]);
 
 const onNodeClick = (event) => {
   flowStore.setSelectedNode(event.node);
@@ -175,13 +200,83 @@ const addNewNode = (type, label, position) => {
   flowStore.addNode(type, label, position);
 };
 
-onMounted(() => {
-  // Add default nodes
-  const startNodeId = flowStore.addNode('start', 'Start', { x: 100, y: 100 });
-  const inputNodeId = flowStore.addNode('input', 'Input Form', { x: 300, y: 100 });
-  const outputNodeId = flowStore.addNode('output', 'Output', { x: 500, y: 100 });
+const runFlow = async () => {
+  isRunning.value = true;
+  executionLog.value = [];
+  
+  try {
+    // Find start node
+    const startNode = elements.value.find(el => el.type === 'start');
+    if (!startNode) {
+      throw new Error('No start node found');
+    }
 
-  // Add default edges
+    addLog('info', 'Starting flow execution');
+    
+    // Execute flow starting from start node
+    await executeNode(startNode);
+    
+    addLog('success', 'Flow execution completed successfully');
+  } catch (error) {
+    addLog('error', `Flow execution failed: ${error.message}`);
+  } finally {
+    isRunning.value = false;
+  }
+};
+
+const executeNode = async (node, inputData = {}) => {
+  if (!node) return null;
+
+  addLog('info', `Executing node: ${node.label || node.type}`);
+
+  try {
+    // Execute the current node
+    const result = await flowStore.executeNode(node, inputData);
+    
+    if (!result.success) {
+      addLog('error', `Node execution failed: ${result.message}`);
+      return null;
+    }
+
+    // Log node output if available
+    if (result.result) {
+      addLog('info', 'Node output:', result.result);
+    }
+
+    // Find outgoing edges
+    const edges = getEdges().filter(edge => edge.source === node.id);
+    
+    // For each outgoing edge, execute the target node
+    for (const edge of edges) {
+      const targetNode = getNode(edge.target);
+      if (targetNode) {
+        await executeNode(targetNode, result.result || inputData);
+      }
+    }
+
+    return result;
+  } catch (error) {
+    addLog('error', `Error executing node: ${error.message}`);
+    return null;
+  }
+};
+
+const addLog = (type, message, data = null) => {
+  executionLog.value.push({
+    type,
+    message,
+    data,
+    timestamp: new Date().toISOString()
+  });
+};
+
+onMounted(() => {
+  // Add default nodes with proper positioning
+  const startNodeId = flowStore.addNode('start', 'Start', { x: 100, y: 200 });
+  const inputNodeId = flowStore.addNode('input', 'Input Form', { x: 300, y: 200 });
+  const outputNodeId = flowStore.addNode('output', 'Output', { x: 500, y: 200 });
+
+  // Connect nodes with edges
   addEdges([
     {
       id: `edge-${startNodeId}-${inputNodeId}`,
@@ -385,5 +480,104 @@ onMounted(() => {
 
 .dark-theme .nested-node {
   background: rgba(0, 0, 0, 0.2);
+}
+
+.controls-bar {
+  width: 300px;
+  padding: 15px;
+  border-left: 1px solid #ccc;
+  background: #f5f5f5;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.execution-status {
+  padding: 8px;
+  background: #e3f2fd;
+  border-radius: 4px;
+  color: #1565c0;
+  text-align: center;
+}
+
+.execution-log {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.log-entries {
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 8px;
+  height: 300px;
+  overflow-y: auto;
+}
+
+.log-entry {
+  padding: 8px;
+  margin: 4px 0;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.log-info {
+  background: #e3f2fd;
+  color: #1565c0;
+}
+
+.log-success {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.log-error {
+  background: #ffebee;
+  color: #c62828;
+}
+
+.log-data {
+  margin-top: 4px;
+  padding: 4px;
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 2px;
+  white-space: pre-wrap;
+}
+
+.dark-theme .controls-bar {
+  background: #333;
+  border-color: #444;
+}
+
+.dark-theme .execution-status {
+  background: #1a237e;
+  color: #90caf9;
+}
+
+.dark-theme .log-entries {
+  background: #424242;
+  border-color: #555;
+}
+
+.dark-theme .log-info {
+  background: #0d47a1;
+  color: #90caf9;
+}
+
+.dark-theme .log-success {
+  background: #1b5e20;
+  color: #a5d6a7;
+}
+
+.dark-theme .log-error {
+  background: #b71c1c;
+  color: #ffcdd2;
+}
+
+.dark-theme .log-data {
+  background: rgba(255, 255, 255, 0.1);
 }
 </style>

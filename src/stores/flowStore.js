@@ -1,6 +1,5 @@
-import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
-// No need to import 'Elements', 'FlowElement', 'Node', 'Edge' types for JS
+import { defineStore } from 'pinia';
+import { ref, computed } from 'vue';
 
 export const useFlowStore = defineStore('flow', () => {
   const elements = ref([]);
@@ -32,34 +31,6 @@ export const useFlowStore = defineStore('flow', () => {
     return id;
   };
 
-  const insertNode = (type, label, position, sourceId, targetId) => {
-    const edgeIndex = elements.value.findIndex(el => 
-      el.source === sourceId && el.target === targetId
-    );
-    if (edgeIndex === -1) return null;
-
-    const edge = elements.value[edgeIndex];
-    elements.value.splice(edgeIndex, 1);
-
-    const newNodeId = addNode(type, label, position);
-
-    elements.value.push({
-      id: `edge-${sourceId}-${newNodeId}`,
-      source: sourceId,
-      target: newNodeId,
-      type: 'smoothstep'
-    });
-
-    elements.value.push({
-      id: `edge-${newNodeId}-${targetId}`,
-      source: newNodeId,
-      target: targetId,
-      type: 'smoothstep'
-    });
-
-    return newNodeId;
-  };
-
   const updateNodeData = (nodeId, newData) => {
     const nodeIndex = elements.value.findIndex(el => el.id === nodeId);
     if (nodeIndex !== -1) {
@@ -80,66 +51,86 @@ export const useFlowStore = defineStore('flow', () => {
     const nodeData = node.data;
     let result = null;
 
-    switch (node.type) {
-      case 'start':
-        result = { success: true };
-        break;
-      case 'input':
-        result = await executeInput(nodeData, inputData);
-        break;
-      case 'condition':
-        result = await executeCondition(nodeData, inputData);
-        break;
-      case 'calculation':
-        result = await executeCalculation(nodeData, inputData);
-        break;
-      case 'log':
-        result = await executeLog(nodeData, inputData);
-        break;
-      case 'output':
-        result = { success: true, result: inputData };
-        break;
-    }
+    try {
+      switch (node.type) {
+        case 'start':
+          result = { success: true, result: {} };
+          break;
 
-    return result;
+        case 'input':
+          result = await executeInput(nodeData, inputData);
+          break;
+
+        case 'condition':
+          result = await executeCondition(nodeData, inputData);
+          break;
+
+        case 'calculation':
+          result = await executeCalculation(nodeData, inputData);
+          break;
+
+        case 'log':
+          result = await executeLog(nodeData, inputData);
+          break;
+
+        case 'output':
+          result = { success: true, result: inputData };
+          break;
+
+        default:
+          result = { success: false, message: `Unknown node type: ${node.type}` };
+      }
+
+      return result;
+    } catch (error) {
+      return { success: false, message: error.message };
+    }
   };
 
   const executeInput = async (nodeData, inputData) => {
-    // Validate input data against field definitions
-    const validationResults = {};
-    for (const field of nodeData.fields) {
-      const value = inputData[field.label];
-      validationResults[field.label] = validateField(field, value);
+    if (!nodeData.fields || nodeData.fields.length === 0) {
+      return { success: false, message: 'No input fields defined' };
     }
-    return validationResults;
+
+    // For now, just pass through the input data
+    return { success: true, result: inputData };
   };
 
   const executeCondition = async (nodeData, inputData) => {
+    if (!nodeData.conditions || nodeData.conditions.length === 0) {
+      return { success: false, message: 'No conditions defined' };
+    }
+
     for (const condition of nodeData.conditions) {
-      const fieldValue = inputData[condition.field];
-      const result = evaluateCondition(condition, fieldValue);
-      
+      const result = evaluateCondition(condition, inputData[condition.field]);
       if (!result && condition.action === 'fail') {
-        return {
-          success: false,
-          message: `Condition failed: ${condition.field} ${condition.operator} ${condition.value}`
-        };
+        return { success: false, message: `Condition failed: ${condition.field} ${condition.operator} ${condition.value}` };
       }
     }
-    return { success: true };
+
+    return { success: true, result: inputData };
   };
 
   const executeCalculation = async (nodeData, inputData) => {
+    if (!nodeData.formula) {
+      return { success: false, message: 'No formula defined' };
+    }
+
     try {
-      // Replace variables in formula with actual values
+      // Replace variables in formula with values from input
       let formula = nodeData.formula;
       for (const [key, value] of Object.entries(inputData)) {
         formula = formula.replace(new RegExp(key, 'g'), value);
       }
-      
-      // Evaluate the formula
+
       const result = eval(formula);
-      return { success: true, result };
+      return { 
+        success: true, 
+        result: { 
+          ...inputData, 
+          calculationResult: result 
+        } 
+      };
     } catch (error) {
       return { success: false, message: `Calculation error: ${error.message}` };
     }
@@ -147,48 +138,24 @@ export const useFlowStore = defineStore('flow', () => {
 
   const executeLog = async (nodeData, inputData) => {
     return {
-      type: nodeData.type,
-      message: nodeData.message,
+      success: true,
+      type: nodeData.type || 'info',
+      message: nodeData.message || 'Log node executed',
       data: inputData
     };
   };
 
-  const validateField = (field, value) => {
-    switch (field.type) {
-      case 'number':
-        return !isNaN(value) && value !== '';
-      case 'date':
-        return !isNaN(Date.parse(value));
-      case 'email':
-        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-      case 'dropdown':
-      case 'radio':
-        return field.options.includes(value);
-      default:
-        return value !== undefined && value !== '';
-    }
-  };
-
   const evaluateCondition = (condition, value) => {
     switch (condition.operator) {
-      case '==':
-        return value == condition.value;
-      case '!=':
-        return value != condition.value;
-      case '>':
-        return value > condition.value;
-      case '<':
-        return value < condition.value;
-      case '>=':
-        return value >= condition.value;
-      case '<=':
-        return value <= condition.value;
-      case 'in':
-        return condition.value.split(',').map(v => v.trim()).includes(value);
-      case 'not in':
-        return !condition.value.split(',').map(v => v.trim()).includes(value);
-      default:
-        return false;
+      case '==': return value == condition.value;
+      case '!=': return value != condition.value;
+      case '>': return value > condition.value;
+      case '<': return value < condition.value;
+      case '>=': return value >= condition.value;
+      case '<=': return value <= condition.value;
+      case 'in': return condition.value.split(',').map(v => v.trim()).includes(value);
+      case 'not in': return !condition.value.split(',').map(v => v.trim()).includes(value);
+      default: return false;
     }
   };
 
@@ -198,9 +165,8 @@ export const useFlowStore = defineStore('flow', () => {
     getNodes,
     getEdges,
     addNode,
-    insertNode,
     updateNodeData,
     setSelectedNode,
     executeNode
-  }
-})
+  };
+});
