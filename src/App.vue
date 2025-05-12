@@ -59,7 +59,10 @@ const flowStore = useFlowStore();
 const themeStore = useThemeStore();
 const { addEdges, getNode, getNodes, getEdges } = useVueFlow();
 
-// ... rest of the script remains unchanged until onMounted
+// Define the addNewNode function
+const addNewNode = (type, label, position) => {
+  flowStore.addNode(type, label, position);
+};
 
 onMounted(() => {
   // Add default nodes
