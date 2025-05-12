@@ -81,6 +81,9 @@ export const useFlowStore = defineStore('flow', () => {
     let result = null;
 
     switch (node.type) {
+      case 'start':
+        result = { success: true };
+        break;
       case 'input':
         result = await executeInput(nodeData, inputData);
         break;
@@ -92,6 +95,9 @@ export const useFlowStore = defineStore('flow', () => {
         break;
       case 'log':
         result = await executeLog(nodeData, inputData);
+        break;
+      case 'output':
+        result = { success: true, result: inputData };
         break;
     }
 
